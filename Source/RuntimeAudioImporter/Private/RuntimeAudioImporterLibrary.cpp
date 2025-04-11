@@ -440,7 +440,7 @@ void URuntimeAudioImporterLibrary::ImportAudioFromDecodedInfo(FDecodedAudioStruc
 	// Making sure we are in the game thread
 	if (!IsInGameThread())
 	{
-		AsyncTask(ENamedThreads::AnyBackgroundHiPriTask, [WeakThis = MakeWeakObjectPtr(this), DecodedAudioInfo = MoveTemp(DecodedAudioInfo)]() mutable
+		AsyncTask(ENamedThreads::GameThread, [WeakThis = MakeWeakObjectPtr(this), DecodedAudioInfo = MoveTemp(DecodedAudioInfo)]() mutable
 		{
 			if (WeakThis.IsValid())
 			{

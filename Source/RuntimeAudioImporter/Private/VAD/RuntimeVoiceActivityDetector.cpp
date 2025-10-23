@@ -242,7 +242,12 @@ bool URuntimeVoiceActivityDetector::ProcessVAD(TArray<float> PCMData, int32 InSa
 			{
 				bIsSpeechActive = false;
 				OnSpeechEndedNative.Broadcast();
-				OnSpeechEnded.Broadcast();
+				
+				AsyncTask(ENamedThreads::GameThread, [WeakThis = MakeWeakObjectPtr(this)]() mutable
+				{
+						WeakThis->OnSpeechEnded.Broadcast();
+				});
+				
 				UE_LOG(LogRuntimeAudioImporter, Log, TEXT("Speech ended for %s"), *GetName());
 			}
 

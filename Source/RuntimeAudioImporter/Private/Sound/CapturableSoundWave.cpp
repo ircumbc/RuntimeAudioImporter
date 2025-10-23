@@ -162,7 +162,13 @@ void UCapturableSoundWave::StopCapture_Implementation()
 #if WITH_RUNTIMEAUDIOIMPORTER_CAPTURE_SUPPORT
 	if (AudioCapture.IsStreamOpen())
 	{
-		AudioCapture.CloseStream();
+		if (!IsInGameThread())
+		{
+			AsyncTask(ENamedThreads::GameThread, [WeakThis = MakeWeakObjectPtr(this)]() mutable
+			{
+				WeakThis->StopCapture();
+			});
+		}
 	}
 #else
 	UE_LOG(LogRuntimeAudioImporter, Error, TEXT("Unable to stop capturing as its support is disabled (please enable in RuntimeAudioImporter.Build.cs)"));

@@ -13,9 +13,6 @@
 
 URuntimeVoiceActivityDetector::URuntimeVoiceActivityDetector()
 	: AppliedSampleRate(0)
-#if WITH_RUNTIMEAUDIOIMPORTER_VAD_SUPPORT
-	  , VADInstance(nullptr)
-#endif
 	  , MinimumSpeechDuration(300) // 300ms default minimum speech duration
 	  , SilenceDuration(500) // 500ms default silence duration
 	  , bIsSpeechActive(false)
@@ -24,8 +21,8 @@ URuntimeVoiceActivityDetector::URuntimeVoiceActivityDetector()
 	  , FrameDurationMs(0)
 {
 #if WITH_RUNTIMEAUDIOIMPORTER_VAD_SUPPORT
-	VADInstance = FVAD_RuntimeAudioImporter::fvad_new();
-	if (VADInstance)
+	SileroVAD = CreateDefaultSubobject<URuntimeSileroVADProvider>(TEXT("SileroVAD"));
+	if (SileroVAD)
 	{
 		UE_LOG(LogRuntimeAudioImporter, VeryVerbose, TEXT("Successfully created VAD instance for %s"), *GetName());
 		SetVADMode(ERuntimeVADMode::VeryAggressive);
@@ -44,25 +41,17 @@ URuntimeVoiceActivityDetector::URuntimeVoiceActivityDetector()
 
 void URuntimeVoiceActivityDetector::BeginDestroy()
 {
-#if WITH_RUNTIMEAUDIOIMPORTER_VAD_SUPPORT
-	if (VADInstance)
-	{
-		FVAD_RuntimeAudioImporter::fvad_free(VADInstance);
-		VADInstance = nullptr;
-	}
-#endif
 	UObject::BeginDestroy();
 }
 
 bool URuntimeVoiceActivityDetector::ResetVAD()
 {
 #if WITH_RUNTIMEAUDIOIMPORTER_VAD_SUPPORT
-	if (!VADInstance)
+	if (!IsValid(SileroVAD))
 	{
 		UE_LOG(LogRuntimeAudioImporter, Error, TEXT("Unable to reset VAD for %s as the VAD instance is not valid"), *GetName());
 		return false;
 	}
-	FVAD_RuntimeAudioImporter::fvad_reset(VADInstance);
 	SetVADMode(ERuntimeVADMode::VeryAggressive);
 	AppliedSampleRate = 0;
 	bIsSpeechActive = false;
@@ -78,6 +67,9 @@ bool URuntimeVoiceActivityDetector::ResetVAD()
 
 bool URuntimeVoiceActivityDetector::SetVADMode(ERuntimeVADMode Mode)
 {
+	UE_LOG(LogRuntimeAudioImporter, Log, TEXT("Setting VAD mode is unimplemented."));
+	return false;
+	/*
 #if WITH_RUNTIMEAUDIOIMPORTER_VAD_SUPPORT
 	if (!VADInstance)
 	{
@@ -95,12 +87,13 @@ bool URuntimeVoiceActivityDetector::SetVADMode(ERuntimeVADMode Mode)
 	UE_LOG(LogRuntimeAudioImporter, Error, TEXT("Unable to set VAD mode for %s as VAD support is disabled"), *GetName());
 	return false;
 #endif
+	*/
 }
 
 bool URuntimeVoiceActivityDetector::ProcessVAD(TArray<float> PCMData, int32 InSampleRate, int32 NumOfChannels)
 {
 #if WITH_RUNTIMEAUDIOIMPORTER_VAD_SUPPORT
-	if (!VADInstance)
+	if (!IsValid(SileroVAD))
 	{
 		UE_LOG(LogRuntimeAudioImporter, Error, TEXT("Unable to process VAD for %s as the VAD instance is not valid"), *GetName());
 		return false;
@@ -136,8 +129,8 @@ bool URuntimeVoiceActivityDetector::ProcessVAD(TArray<float> PCMData, int32 InSa
 		AlignedPCMData = MoveTemp(AlignedPCMData_Mixed);
 	}
 
-	// Resample the audio data if necessary (VAD only supports 8 kHz audio data)
-	static constexpr int32 VADTargetSampleRate = 8000;
+	// Resample the audio data if necessary (Silero only supports 16 kHz audio data)
+	static constexpr int32 VADTargetSampleRate = 16000;
 	if (InSampleRate != VADTargetSampleRate)
 	{
 		Audio::FAlignedFloatBuffer AlignedPCMData_Resampled;
@@ -151,35 +144,11 @@ bool URuntimeVoiceActivityDetector::ProcessVAD(TArray<float> PCMData, int32 InSa
 		InSampleRate = VADTargetSampleRate;
 		UE_LOG(LogRuntimeAudioImporter, Verbose, TEXT("Successfully resampled audio data for %s to %d sample rate"), *GetName(), VADTargetSampleRate);
 	}
-
-	// Apply the sample rate to the VAD instance if it is different from the current sample rate
-	if (AppliedSampleRate != InSampleRate)
-	{
-		if (FVAD_RuntimeAudioImporter::fvad_set_sample_rate(VADInstance, InSampleRate) != 0)
-		{
-			UE_LOG(LogRuntimeAudioImporter, Error, TEXT("Unable to set VAD sample rate for %s"), *GetName());
-			return false;
-		}
-		AppliedSampleRate = InSampleRate;
-		UE_LOG(LogRuntimeAudioImporter, Verbose, TEXT("Successfully set VAD sample rate for %s to %d"), *GetName(), AppliedSampleRate);
-	}
 	
-	// Convert float PCM data to int16 PCM data
-	TArray<int16> Int16PCMData;
-	{
-#if UE_VERSION_OLDER_THAN(5, 1, 0)
-		int16* Int16PCMDataPtr;
-		FRAW_RuntimeCodec::TranscodeRAWData<float, int16>(AlignedPCMData.GetData(), AlignedPCMData.Num(), Int16PCMDataPtr);
-		Int16PCMData.Append(Int16PCMDataPtr, AlignedPCMData.Num());
-		FMemory::Free(Int16PCMDataPtr);
-#else
-		Int16PCMData.AddUninitialized(AlignedPCMData.Num());
-		Audio::ArrayFloatToPcm16(MakeArrayView(AlignedPCMData), MakeArrayView(Int16PCMData));
-#endif
-	}
+	AppliedSampleRate = InSampleRate;
 
 	// Append the new PCM data to the accumulated data
-	AccumulatedPCMData.Append(MoveTemp(Int16PCMData));
+	AccumulatedPCMData.Append(MoveTemp(AlignedPCMData));
 
 	// Calculate the length of the accumulated audio data in milliseconds
 	float AudioDataLengthMs = static_cast<float>(AccumulatedPCMData.Num()) / static_cast<float>(AppliedSampleRate) * 1000;
@@ -209,7 +178,7 @@ bool URuntimeVoiceActivityDetector::ProcessVAD(TArray<float> PCMData, int32 InSa
 		int32 NumToProcess = ValidLength * AppliedSampleRate / 1000;
 
 		// Process the VAD
-		int32 VADResult = FVAD_RuntimeAudioImporter::fvad_process(VADInstance, AccumulatedPCMData.GetData(), NumToProcess);
+		int32 VADResult = SileroVAD->ProcessAudio(AccumulatedPCMData, AppliedSampleRate, NumToProcess); //Previously: FVAD_RuntimeAudioImporter::fvad_process(VADInstance, AccumulatedPCMData.GetData(), NumToProcess);
 
 		// Remove processed data from the accumulated buffer
 		AccumulatedPCMData.RemoveAt(0, NumToProcess);

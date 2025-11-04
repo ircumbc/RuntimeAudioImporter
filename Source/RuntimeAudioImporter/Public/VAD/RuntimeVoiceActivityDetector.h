@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RuntimeSileroVADProvider.h"
 #include "UObject/Object.h"
 #include "RuntimeVoiceActivityDetector.generated.h"
 
@@ -65,17 +66,15 @@ protected:
 	/** The sample rate at which the VAD is currently applied */
 	int32 AppliedSampleRate;
 
-#if WITH_RUNTIMEAUDIOIMPORTER_VAD_SUPPORT
-	/** The VAD instance. Initialized in the constructor and destroyed in BeginDestroy */
-	FVAD_RuntimeAudioImporter::Fvad* VADInstance;
-#endif
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "Voice Activity Detector")
+	URuntimeSileroVADProvider* SileroVAD;
 
 	/**
 	 * The accumulated PCM data used for VAD processing. Reset after each VAD decision
 	 * VAD requires frames with a length of 10, 20, or 30 ms. Therefore, if the provided data does not match these lengths,
 	 * we need to either accumulate data (if too short) or split data (if too long) to match the required frame length
 	 */
-	TArray<int16> AccumulatedPCMData;
+	TArray<float> AccumulatedPCMData;
 
 public:
 	/** Static delegate broadcast when the VAD detects the start of speech */

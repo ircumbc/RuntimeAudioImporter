@@ -145,7 +145,8 @@ public class RuntimeAudioImporter : ModuleRules
 				new string[]
 				{
 					"AudioMixer",
-					"AudioCaptureCore"
+					"AudioCaptureCore",
+					"RuntimeAudioImporterSileroVAD"
 				}
 			);
 		}

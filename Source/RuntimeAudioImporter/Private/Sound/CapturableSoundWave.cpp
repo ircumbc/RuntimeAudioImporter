@@ -169,6 +169,10 @@ void UCapturableSoundWave::StopCapture_Implementation()
 				WeakThis->StopCapture();
 			});
 		}
+		else
+		{
+			AudioCapture.CloseStream();
+		}
 	}
 #else
 	UE_LOG(LogRuntimeAudioImporter, Error, TEXT("Unable to stop capturing as its support is disabled (please enable in RuntimeAudioImporter.Build.cs)"));
